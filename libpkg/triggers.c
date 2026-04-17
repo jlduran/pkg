@@ -833,7 +833,7 @@ pkg_execute_deferred_triggers(void)
 
 	int trigfd = openat(dbdir, "triggers", O_DIRECTORY);
 	if (trigfd == -1)
-		return (EPKG_OK);
+		return (EPKG_FATAL);
 
 	DIR *d = fdopendir(trigfd);
 	if (d == NULL) {
