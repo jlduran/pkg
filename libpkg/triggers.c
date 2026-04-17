@@ -843,7 +843,7 @@ pkg_execute_deferred_triggers(void)
 	}
 
 	while ((e = readdir(d)) != NULL) {
-		/* ignore all hiddn files */
+		/* ignore all hidden files */
 		if (e->d_name[0] == '.')
 			continue;
 		/* only regular files are considered */
