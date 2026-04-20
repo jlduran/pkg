@@ -404,7 +404,6 @@ save_trigger(const char *script, bool sandbox, pkghash *args)
 		return;
 
 	int trigfd = openat(db, "triggers", O_DIRECTORY);
-	close(db);
 	if (trigfd == -1) {
 		pkg_errno("Failed to open '%s' as a directory", "triggers");
 		return;
@@ -433,7 +432,7 @@ save_trigger(const char *script, bool sandbox, pkghash *args)
 	fputs("--begin args\n", f);
 	it = pkghash_iterator(args);
 	while (pkghash_next(&it)) {
-		fprintf(f, "-- %s\n", (char *)it.value);
+		fprintf(f, "-- %s\n", (char *)it.key);
 	}
 	fputs("--end args\n--\n", f);
 	fprintf(f, "%s\n", script);
@@ -791,6 +790,7 @@ exec_deferred(int dfd, const char *name)
 	}
 	FILE *f = fdopen(fd, "r");
 	if (f == NULL) {
+		close(fd); // XXX Close FD if fdopen fails
 		pkg_errno("Unable to open the trigger '%s'", name);
 		return;
 	}
@@ -801,41 +801,42 @@ exec_deferred(int dfd, const char *name)
 	char *walk;
 	bool inargs = false;
 	while ((linelen = getline(&line, &linecap, f)) > 0) {
-		walk = line;
-		walk += 2; /* '--' aka lua comments */
+		// XXX Ensure line is long enough to be a Lua comment '--'
+		/* '--' aka lua comments */
+		if (linelen < 2 || line[0] != '-' || line[1] != '-') {
+			if (script != NULL)
+				fputs(line, script->fp);
+			continue;
+		}
+		walk = line + 2;
 		if (strncmp(walk, "sandbox", 7) == 0) {
 			sandbox = true;
-			continue;
-		}
-		if (strncmp(walk, "begin args", 10) == 0) {
+		} else if (strncmp(walk, "begin args", 10) == 0) {
 			inargs = true;
-			continue;
-		}
-		if (strncmp(walk, "end args", 8) == 0) {
+		} else if (strncmp(walk, "end args", 8) == 0) {
 			inargs = false;
 			script = xstring_new();
-			continue;
-		}
-		if (inargs) {
-			walk++; /* skip the space */
-			if (line[linelen -1] == '\n')
-				line[linelen -1] = '\0';
-			pkghash_safe_add(args, walk, NULL, NULL);
-		}
-		if (script != NULL)
+		} else if (inargs) {
+			if (walk[0] == ' ')
+				walk++; /* skip the space */
+			// XXX Check that the script ends with a new line or a carriage return
+			line[strcspn(line, "\r\n")] = '\0';
+			// XXX Must use strdup() because pkghash_destroy calls free()
+			pkghash_safe_add(args, strdup(walk), NULL, NULL);
+		} else if (script != NULL)
 			fputs(line, script->fp);
 	}
 	free(line);
 	fclose(f);
-	if (script == NULL) {
-		pkghash_destroy(args);
-		return;
+
+	if (script != NULL) {
+		char *s = xstring_get(script);
+		if (trigger_execute_lua(s, sandbox, args) == EPKG_OK) {
+			unlinkat(dfd, name, 0);
+		}
+		free(s);
+		xstring_free(script); // XXX Prevent xstring struct leak
 	}
-	char *s = xstring_get(script);
-	if (trigger_execute_lua(s, sandbox, args) == EPKG_OK) {
-		unlinkat(dfd, name, 0);
-	}
-	free(s);
 	pkghash_destroy(args);
 }
 
@@ -845,6 +846,7 @@ pkg_execute_deferred_triggers(void)
 	struct dirent *e;
 	struct stat st;
 	int dbdir = pkg_get_dbdirfd();
+	int ret = EPKG_OK;
 
 	int trigfd = openat(dbdir, "triggers", O_DIRECTORY);
 	if (trigfd == -1)
@@ -864,10 +866,11 @@ pkg_execute_deferred_triggers(void)
 		/* only regular files are considered */
 		if (fstatat(trigfd, e->d_name, &st, AT_SYMLINK_NOFOLLOW) != 0) {
 			pkg_emit_errno("fstatat", e->d_name);
-			return (EPKG_FATAL);
+			ret = EPKG_FATAL;
+			break;
 		}
 		exec_deferred(trigfd, e->d_name);
 	}
 	closedir(d);
-	return (EPKG_OK);
+	return (ret);
 }
