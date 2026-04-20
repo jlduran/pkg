@@ -1,7 +1,7 @@
 /*-
  * Copyright (c) 2011-2012 Baptiste Daroussin <bapt@FreeBSD.org>
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -11,7 +11,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE AUTHOR(S) ``AS IS'' AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
  * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
@@ -81,7 +81,6 @@ rc_stop(const char *rc_file)
 {
 	int error, pstat;
 	pid_t pid;
-	posix_spawn_file_actions_t actions;
 	const char *argv[4];
 
 	if (rc_file == NULL)
@@ -89,32 +88,8 @@ rc_stop(const char *rc_file)
 
 	argv[0] = "service";
 	argv[1] = rc_file;
-	argv[2] = "onestatus";
+	argv[2] = "onestop";
 	argv[3] = NULL;
-
-	if ((error = posix_spawn_file_actions_init(&actions)) != 0 ||
-	    (error = posix_spawn_file_actions_addopen(&actions,
-	    STDOUT_FILENO, "/dev/null", O_RDONLY, 0)) != 0 ||
-	    (error = posix_spawn_file_actions_addopen(&actions,
-	    STDERR_FILENO, "/dev/null", O_RDONLY, 0)) != 0 ||
-	    (error = posix_spawn(&pid, "/usr/sbin/service", &actions, NULL,
-	    __DECONST(char **, argv), environ)) != 0) {
-		errno = error;
-		pkg_errno("Cannot query service '%s'", rc_file);
-		return (-1);
-	}
-
-	while (waitpid(pid, &pstat, 0) == -1) {
-		if (errno != EINTR)
-			return (-1);
-	}
-
-	if (WEXITSTATUS(pstat) != 0)
-		return (0);
-
-	posix_spawn_file_actions_destroy(&actions);
-
-	argv[2] = "stop";
 
 	if ((error = posix_spawn(&pid, "/usr/sbin/service", NULL, NULL,
 	    __DECONST(char **, argv), environ)) != 0) {
