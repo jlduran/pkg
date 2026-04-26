@@ -947,7 +947,6 @@ pkg_emit_object(struct pkg *pkg, short flags)
 	xstring		*tmpsbuf  = NULL;
 	const char *script_types = NULL;
 	char legacyarch[BUFSIZ];
-	char perm_str[sizeof("00000")];
 	ucl_object_t *map, *seq, *submap;
 	ucl_object_t *top = ucl_object_typed_new(UCL_OBJECT);
 
@@ -1194,9 +1193,8 @@ pkg_emit_object(struct pkg *pkg, short flags)
 				ucl_object_insert_key(file_attrs,
 						      ucl_object_fromstring(file->gname != NULL ? file->gname : "wheel"),
 						      "gname", 0, false);
-				snprintf(perm_str, sizeof(perm_str), "%#4.4o", file->perm);
 				ucl_object_insert_key(file_attrs,
-						      ucl_object_fromstring(perm_str),
+						      ucl_object_fromint(file->perm),
 						      "perm", 0, false);
 #ifdef HAVE_FFLAGSTOSTR
 				if (file->fflags != 0) {
@@ -1258,9 +1256,8 @@ pkg_emit_object(struct pkg *pkg, short flags)
 				ucl_object_insert_key(dir_attrs,
 						      ucl_object_fromstring(dir->gname ? dir->gname : "wheel"),
 						      "gname", 0, false);
-				snprintf(perm_str, sizeof(perm_str), "%#4.4o", dir->perm);
 				ucl_object_insert_key(dir_attrs,
-						      ucl_object_fromstring(perm_str),
+						      ucl_object_fromint(dir->perm),
 						      "perm", 0, false);
 #ifdef HAVE_FFLAGSTOSTR
 				if (dir->fflags != 0) {
