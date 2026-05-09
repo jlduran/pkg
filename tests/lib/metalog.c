@@ -53,9 +53,36 @@ ATF_TC_BODY(basics, tc) {
 	}
 }
 
+ATF_TC_WITHOUT_HEAD(escaped);
+
+ATF_TC_BODY(escaped, tc) {
+	const char *file = "./\\133 type=file uname=root gname=wheel mode=0555\n";
+	ATF_REQUIRE_EQ(EPKG_OK, metalog_open("out"));
+	ATF_REQUIRE_EQ(EPKG_OK,
+	    metalog_add(PKG_METALOG_FILE, "[", "root", "wheel", 0555, 0, NULL));
+	metalog_close();
+	if (!atf_utils_compare_file("out", file))
+		atf_tc_fail("Invalid file");
+}
+
+ATF_TC_WITHOUT_HEAD(long_path);
+
+ATF_TC_BODY(long_path, tc) {
+	int len = MAXPATHLEN + 1;
+	char path[len + 1];
+	memset(path, 'x', len);
+	path[len] = '\0';
+	ATF_REQUIRE_EQ(EPKG_OK, metalog_open("out"));
+	ATF_REQUIRE_EQ(EPKG_FATAL,
+	    metalog_add(PKG_METALOG_FILE, path, "root", "wheel", 0644, 0, NULL));
+	metalog_close();
+}
+
 ATF_TP_ADD_TCS(tp)
 {
 	ATF_TP_ADD_TC(tp, basics);
+	ATF_TP_ADD_TC(tp, escaped);
+	ATF_TP_ADD_TC(tp, long_path);
 
 	return (atf_no_error());
 }
