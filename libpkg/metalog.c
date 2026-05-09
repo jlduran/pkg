@@ -24,6 +24,7 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <sys/param.h>
 #include <sys/stat.h>
 
 #include <errno.h>
@@ -36,7 +37,8 @@
 #define	ALLPERMS	(S_ISUID|S_ISGID|S_ISTXT|S_IRWXU|S_IRWXG|S_IRWXO)
 #endif
 
-static FILE *metalogfp = NULL;
+static char	*vispath(const char *);
+static FILE	*metalogfp = NULL;
 
 int
 metalog_open(const char *metalog)
@@ -81,11 +83,11 @@ metalog_add(int type, const char *path, const char *uname, const char *gname,
 	}
 
 	if (fprintf(metalogfp, "./%s type=%s uname=%s gname=%s mode=%#o",
-	    path, type_str, uname, gname, mode & ALLPERMS) < 0)
+	    vispath(path), type_str, uname, gname, mode & ALLPERMS) < 0)
 		goto err;
 
 	if (type == PKG_METALOG_LINK && link != NULL) {
-		if (fprintf(metalogfp, " link=%s", link) < 0)
+		if (fprintf(metalogfp, " link=%s", vispath(link)) < 0)
 		goto err;
 	}
 
@@ -110,4 +112,34 @@ metalog_close(void)
 	if (metalogfp != NULL) {
 		fclose(metalogfp);
 	}
+}
+
+/*
+ * vispath --
+ *	Encodes a path, which must not be longer than MAXPATHLEN
+ *	characters long, and returns a pointer to a static buffer containing
+ *	the result.
+ *	Note that we are avoiding strsvis(3) explicitly.
+ */
+static char *
+vispath(const char *path)
+{
+	static char pathbuf[4 * MAXPATHLEN + 1];
+	const char *extra_glob = " \t\n\\#*?[";
+	char *dst = pathbuf;
+	const char *src;
+
+	for (src = path; *src != '\0'; src++) {
+		if (*src < 32 || (unsigned char)*src >= 127 ||
+		    strchr(extra_glob, *src) != NULL) {
+			dst += sprintf(dst, "\\%03o", (unsigned char)*src);
+		} else {
+			*dst++ = *src;
+		}
+
+		if (dst - pathbuf >= (sizeof(pathbuf) - 4))
+			break;
+	}
+	*dst = '\0';
+	return (pathbuf);
 }
