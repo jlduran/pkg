@@ -24,11 +24,17 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <sys/stat.h>
+
 #include <errno.h>
 
 #include "pkg.h"
 #include "private/pkg.h"
 #include "private/event.h"
+
+#ifndef ALLPERMS
+#define	ALLPERMS	(S_ISUID|S_ISGID|S_ISTXT|S_IRWXU|S_IRWXG|S_IRWXO)
+#endif
 
 static FILE *metalogfp = NULL;
 
@@ -63,8 +69,8 @@ metalog_add(int type, const char *path, const char *uname, const char *gname,
 	switch (type) {
 	case PKG_METALOG_DIR:
 		if (fprintf(metalogfp,
-		    "./%s type=dir uname=%s gname=%s mode=%3o%s%s\n",
-		    path, uname, gname, mode,
+		    "./%s type=dir uname=%s gname=%s mode=%#o%s%s\n",
+		    path, uname, gname, mode & ALLPERMS,
 		    fflags ? " flags=" : "",
 		    fflags_buffer ? fflags_buffer : "") < 0) {
 			pkg_errno("%s", "Unable to write to the metalog");
@@ -73,8 +79,8 @@ metalog_add(int type, const char *path, const char *uname, const char *gname,
 		break;
 	case PKG_METALOG_FILE:
 		if (fprintf(metalogfp,
-		    "./%s type=file uname=%s gname=%s mode=%3o%s%s\n",
-		    path, uname, gname, mode,
+		    "./%s type=file uname=%s gname=%s mode=%#o%s%s\n",
+		    path, uname, gname, mode & ALLPERMS,
 		    fflags ? " flags=" : "",
 		    fflags_buffer ? fflags_buffer : "") < 0) {
 			pkg_errno("%s", "Unable to write to the metalog");
@@ -83,8 +89,8 @@ metalog_add(int type, const char *path, const char *uname, const char *gname,
 		break;
 	case PKG_METALOG_LINK:
 		if (fprintf(metalogfp,
-		    "./%s type=link uname=%s gname=%s mode=%3o link=%s%s%s\n",
-		    path, uname, gname, mode, link,
+		    "./%s type=link uname=%s gname=%s mode=%#o link=%s%s%s\n",
+		    path, uname, gname, mode & ALLPERMS, link,
 		    fflags ? " flags=" : "",
 		    fflags_buffer ? fflags_buffer : "") < 0) {
 			pkg_errno("%s", "Unable to write to the metalog");
