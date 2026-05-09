@@ -12,5 +12,6 @@ struct pkg_add_context {
 	int rootfd;
 	struct pkg *pkg;
 	struct pkg *localpkg;
+	pkghash *metalog_hash;
 };
 struct tempdir *open_tempdir(struct pkg_add_context *, const char *path);

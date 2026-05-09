@@ -36,6 +36,10 @@
 #include "private/pkgdb.h"
 #include "private/add.h"
 
+#ifndef MAX_TREE_DEPTH
+#define MAX_TREE_DEPTH	(MAXPATHLEN / 2)
+#endif
+
 #if defined(UF_NOUNLINK)
 #define NOCHANGESFLAGS	(UF_IMMUTABLE | UF_APPEND | UF_NOUNLINK | SF_IMMUTABLE | SF_APPEND | SF_NOUNLINK)
 #else
@@ -1568,6 +1572,7 @@ pkg_add_common(struct pkgdb *db, const char *path, unsigned flags,
 	ret = pkg_open2(&pkg, &a, &ae, path, 0, -1);
 	context.pkg = pkg;
 	context.localpkg = local;
+	context.metalog_hash = NULL;
 	if (ret == EPKG_END)
 		extract = false;
 	else if (ret != EPKG_OK) {
@@ -1789,6 +1794,8 @@ pkg_add_common(struct pkgdb *db, const char *path, unsigned flags,
 	}
 
 cleanup:
+	if (context.metalog_hash != NULL)
+		pkghash_destroy(&context.metalog_hash);
 	if (openxact)
 		pkgdb_register_finale(db, retcode, NULL);
 	if (a != NULL) {
@@ -1901,6 +1908,7 @@ pkg_add_fromdir(struct pkg *pkg, const char *src, struct pkgdb *db __unused)
 	pkg_open_root_fd(pkg);
 	context.pkg = pkg;
 	context.rootfd = pkg->rootfd;
+	context.metalog_hash = NULL;
 
 	while (pkg_dirs(pkg, &d) == EPKG_OK) {
 		if (fstatat(fromfd, RELATIVE_PATH(d->path), &st, 0) == -1) {
@@ -2075,6 +2083,29 @@ cleanup:
 	return (retcode);
 }
 
+static bool
+path_already_logged(struct pkg_add_context *context, const char *path)
+{
+	if (pkghash_get(context->metalog_hash, path) != NULL)
+		return (true);
+
+	pkghash_safe_add(context->metalog_hash, path, NULL, NULL);
+
+	return (false);
+}
+
+static void
+missing_metalog_dir(struct pkg_add_context *context, const char *path)
+{
+	if (pkghash_get(context->pkg->dirhash, path) != NULL)
+		return;
+
+	if (path_already_logged(context, path))
+		return;
+
+	metalog_add(PKG_METALOG_DIR, RELATIVE_PATH(path),
+	    "root", "wheel", 0755, 0, NULL);
+}
 
 struct tempdir *
 open_tempdir(struct pkg_add_context *context, const char *path)
@@ -2083,8 +2114,10 @@ open_tempdir(struct pkg_add_context *context, const char *path)
 	struct pkg *localpkg;
 	char walk[MAXPATHLEN];
 	char *dir;
+	const char *to_log[MAX_TREE_DEPTH];
 	size_t cnt = 0, len;
 	struct tempdir *t;
+	int log_count = 0;
 	int rootfd;
 
 	rootfd = context->rootfd;
@@ -2112,9 +2145,8 @@ open_tempdir(struct pkg_add_context *context, const char *path)
 				 * properly we need to clean up uses of
 				 * try_mkdir().
 				 */
-				metalog_add(PKG_METALOG_DIR,
-				    RELATIVE_PATH(walk),
-				    "root", "wheel", 0755, 0, NULL);
+				if (log_count < MAX_TREE_DEPTH)
+					to_log[log_count++] = xstrdup(walk);
 				continue;
 			}
 			if (S_ISLNK(st.st_mode) &&
@@ -2127,6 +2159,15 @@ open_tempdir(struct pkg_add_context *context, const char *path)
 			if (!S_ISDIR(st.st_mode))
 				continue;
 		}
+	}
+
+	while (log_count > 0) {
+		log_count--;
+		missing_metalog_dir(context, to_log[log_count]);
+		free((void *)to_log[log_count]);
+	}
+
+	if (dir != NULL) {
 		*dir = '/';
 		t = xcalloc(1, sizeof(*t));
 		hidden_tempfile(t->temp, sizeof(t->temp), walk);
@@ -2147,5 +2188,6 @@ open_tempdir(struct pkg_add_context *context, const char *path)
 		return (t);
 	}
 	errno = 0;
+
 	return (NULL);
 }

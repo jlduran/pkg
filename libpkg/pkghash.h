@@ -27,17 +27,16 @@ typedef struct {
 pkghash_entry *pkghash_get(pkghash *table, const char *key);
 pkghash_it pkghash_iterator(pkghash *table);
 bool pkghash_next(pkghash_it *it);
-#define pkghash_safe_add(_t, _k, _v, _free_func) do { \
-	if (_t == NULL)                               \
-		_t = pkghash_new();                   \
-	else if (pkghash_get(_t, _k) != NULL)         \
-		break;                                \
-	pkghash_add(_t, _k, _v, _free_func);          \
-} while (0);
+#define pkghash_safe_add(_t, _k, _v, _free_func) do {	\
+	if (_t == NULL)					\
+		_t = pkghash_new();			\
+	else if (pkghash_get(_t, _k) != NULL)		\
+		break;					\
+	pkghash_add(_t, _k, _v, _free_func);		\
+} while (0)
 
 bool pkghash_del(pkghash *h, const char *key);
 void *pkghash_delete(pkghash *h, const char *key);
 void *pkghash_get_value(pkghash *h, const char *key);
 
 #endif
-
