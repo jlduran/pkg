@@ -54,6 +54,7 @@ metalog_add(int type, const char *path, const char *uname, const char *gname,
     int mode, unsigned long fflags, const char *link)
 {
 	char *fflags_buffer = NULL;
+	const char *type_str;
 	int ret = EPKG_FATAL;
 
 	if (metalogfp == NULL)
@@ -65,41 +66,39 @@ metalog_add(int type, const char *path, const char *uname, const char *gname,
 	}
 #endif
 
-	// directory
 	switch (type) {
 	case PKG_METALOG_DIR:
-		if (fprintf(metalogfp,
-		    "./%s type=dir uname=%s gname=%s mode=%#o%s%s\n",
-		    path, uname, gname, mode & ALLPERMS,
-		    fflags ? " flags=" : "",
-		    fflags_buffer ? fflags_buffer : "") < 0) {
-			pkg_errno("%s", "Unable to write to the metalog");
-			goto out;
-		}
+		type_str = "dir";
 		break;
 	case PKG_METALOG_FILE:
-		if (fprintf(metalogfp,
-		    "./%s type=file uname=%s gname=%s mode=%#o%s%s\n",
-		    path, uname, gname, mode & ALLPERMS,
-		    fflags ? " flags=" : "",
-		    fflags_buffer ? fflags_buffer : "") < 0) {
-			pkg_errno("%s", "Unable to write to the metalog");
-			goto out;
-		}
+		type_str = "file";
 		break;
 	case PKG_METALOG_LINK:
-		if (fprintf(metalogfp,
-		    "./%s type=link uname=%s gname=%s mode=%#o link=%s%s%s\n",
-		    path, uname, gname, mode & ALLPERMS, link,
-		    fflags ? " flags=" : "",
-		    fflags_buffer ? fflags_buffer : "") < 0) {
-			pkg_errno("%s", "Unable to write to the metalog");
-			goto out;
-		}
+		type_str = "link";
 		break;
+	default:
+		goto out;
 	}
-	ret = EPKG_OK;
 
+	if (fprintf(metalogfp, "./%s type=%s uname=%s gname=%s mode=%#o",
+	    path, type_str, uname, gname, mode & ALLPERMS) < 0)
+		goto err;
+
+	if (type == PKG_METALOG_LINK && link != NULL) {
+		if (fprintf(metalogfp, " link=%s", link) < 0)
+			goto err;
+	}
+
+	if (fprintf(metalogfp, "%s%s\n",
+	    fflags ? " flags=" : "",
+	    fflags_buffer ? fflags_buffer : "") < 0)
+		goto err;
+
+	ret = EPKG_OK;
+	goto out;
+
+err:
+	pkg_errno("%s", "Unable to write to the metalog");
 out:
 	free(fflags_buffer);
 	return (ret);
