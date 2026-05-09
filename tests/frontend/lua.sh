@@ -770,8 +770,8 @@ EOS
 }
 EOF
 
-OUTPUT="./plop type=file uname=root gname=wheel mode=440
-./meh type=file uname=root gname=wheel mode=440
+OUTPUT="./plop type=file uname=root gname=wheel mode=0440
+./meh type=file uname=root gname=wheel mode=0440
 "
 	atf_check -o ignore pkg create -M test.ucl -p test.plist -r .
 	mkdir ${TMPDIR}/target

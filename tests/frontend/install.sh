@@ -90,15 +90,15 @@ EOF
 		pkg -o REPOS_DIR="${TMPDIR}/reposconf" -o METALOG=${TMPDIR}/METALOG -r ${TMPDIR}/root install -y test
 
 	atf_check \
-		-o match:"./testfile1 type=file uname=root gname=wheel mode=640" \
-		-o match:"./testfile2 type=file uname=daemon gname=nobody mode=644" \
-		-o match:"./testlink1 type=link uname=root gname=wheel mode=755 link=${TMPDIR}/testfile1" \
-		-o match:"./testhlink2 type=file uname=root gname=wheel mode=644" \
-		-o match:"./testdir1 type=dir uname=root gname=wheel mode=755" \
-		-o match:"./testdir1/foo type=dir uname=root gname=wheel mode=755" \
-		-o match:"./testdir1/foo/bar type=dir uname=root gname=wheel mode=755" \
-		-o match:"./testdir1/foo/bar/baz type=dir uname=root gname=wheel mode=755" \
-		-o match:"./testdir2 type=dir uname=daemon gname=wheel mode=750" \
+		-o match:"./testfile1 type=file uname=root gname=wheel mode=0640" \
+		-o match:"./testfile2 type=file uname=daemon gname=nobody mode=0644" \
+		-o match:"./testlink1 type=link uname=root gname=wheel mode=0755 link=${TMPDIR}/testfile1" \
+		-o match:"./testhlink2 type=file uname=root gname=wheel mode=0644" \
+		-o match:"./testdir1 type=dir uname=root gname=wheel mode=0755" \
+		-o match:"./testdir1/foo type=dir uname=root gname=wheel mode=0755" \
+		-o match:"./testdir1/foo/bar type=dir uname=root gname=wheel mode=0755" \
+		-o match:"./testdir1/foo/bar/baz type=dir uname=root gname=wheel mode=0755" \
+		-o match:"./testdir2 type=dir uname=daemon gname=wheel mode=0750" \
 		cat ${TMPDIR}/METALOG
 }
 
