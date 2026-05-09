@@ -64,6 +64,8 @@ metalog_body()
 	atf_check mkdir ${TMPDIR}/testdir2
 	atf_check chmod 750 ${TMPDIR}/testdir2
 	echo "@dir(daemon) testdir2" >> test.plist
+	atf_check mkdir "${TMPDIR}/tmp"
+	echo "@dir(root,wheel,1777,) tmp" >> test.plist
 
 	atf_check \
 		-o ignore \
@@ -89,17 +91,21 @@ EOF
 		-o ignore \
 		pkg -o REPOS_DIR="${TMPDIR}/reposconf" -o METALOG=${TMPDIR}/METALOG -r ${TMPDIR}/root install -y test
 
-	atf_check \
-		-o match:"./testfile1 type=file uname=root gname=wheel mode=640" \
-		-o match:"./testfile2 type=file uname=daemon gname=nobody mode=644" \
-		-o match:"./testlink1 type=link uname=root gname=wheel mode=755 link=${TMPDIR}/testfile1" \
-		-o match:"./testhlink2 type=file uname=root gname=wheel mode=644" \
-		-o match:"./testdir1 type=dir uname=root gname=wheel mode=755" \
-		-o match:"./testdir1/foo type=dir uname=root gname=wheel mode=755" \
-		-o match:"./testdir1/foo/bar type=dir uname=root gname=wheel mode=755" \
-		-o match:"./testdir1/foo/bar/baz type=dir uname=root gname=wheel mode=755" \
-		-o match:"./testdir2 type=dir uname=daemon gname=wheel mode=750" \
-		cat ${TMPDIR}/METALOG
+	cat <<-EOF > expected_metalog
+	./testfile1 type=file uname=root gname=wheel mode=0640
+	./testfile2 type=file uname=daemon gname=nobody mode=0644
+	./testhlink2 type=file uname=root gname=wheel mode=0644
+	./testlink1 type=link uname=root gname=wheel mode=0755 link=${TMPDIR}/testfile1
+	./testdir1/foo/bar type=dir uname=root gname=wheel mode=0755
+	./testdir1/foo type=dir uname=root gname=wheel mode=0755
+	./testdir1 type=dir uname=root gname=wheel mode=0755
+	./testdir1/foo/bar/baz type=dir uname=root gname=wheel mode=0755
+	./testdir1/foo/bar/baz2 type=dir uname=root gname=wheel mode=0755
+	./testdir2 type=dir uname=daemon gname=wheel mode=0750
+	./tmp type=dir uname=root gname=wheel mode=01777
+	EOF
+
+	atf_check diff -u expected_metalog "${TMPDIR}/METALOG"
 }
 
 reinstall_body()
