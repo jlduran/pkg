@@ -24,9 +24,15 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <sys/param.h>
 #include <sys/stat.h>
 
 #include <errno.h>
+#ifdef __linux__
+# include <bsd/vis.h>
+#else
+# include <vis.h>
+#endif
 
 #include "pkg.h"
 #include "private/pkg.h"
@@ -37,6 +43,29 @@
 #endif
 
 static FILE *metalogfp = NULL;
+
+/*
+ * vispath --
+ *	strsvis(3) encodes path, which must not be longer than MAXPATHLEN
+ *	characters long, and returns a pointer to a static buffer containing
+ *	the result.
+ */
+static char *
+vispath(const char *path)
+{
+	static const char extra_glob[] = { ' ', '\t', '\n', '\\', '#', '*',
+	    '?', '[', '\0' };
+	static char pathbuf[4 * MAXPATHLEN + 1];
+
+	if (strlen(path) >= MAXPATHLEN) {
+		pkg_errno("%s", "Pathname too long");
+		return (NULL);
+	}
+
+	strsvis(pathbuf, path, VIS_OCTAL, extra_glob);
+
+	return (pathbuf);
+}
 
 int
 metalog_open(const char *metalog)
@@ -54,7 +83,7 @@ metalog_add(int type, const char *path, const char *uname, const char *gname,
     int mode, unsigned long fflags, const char *link)
 {
 	char *fflags_buffer = NULL;
-	const char *type_str;
+	const char *escaped_path, *escaped_link, *type_str;
 	int ret = EPKG_FATAL;
 
 	if (metalogfp == NULL)
@@ -80,12 +109,19 @@ metalog_add(int type, const char *path, const char *uname, const char *gname,
 		goto out;
 	}
 
+	escaped_path = vispath(path);
+	if (escaped_path == NULL)
+		goto out;
+
 	if (fprintf(metalogfp, "./%s type=%s uname=%s gname=%s mode=%#o",
-	    path, type_str, uname, gname, mode & ALLPERMS) < 0)
+	    escaped_path, type_str, uname, gname, mode & ALLPERMS) < 0)
 		goto err;
 
 	if (type == PKG_METALOG_LINK && link != NULL) {
-		if (fprintf(metalogfp, " link=%s", link) < 0)
+		escaped_link = vispath(link);
+		if (escaped_link == NULL)
+			goto out;
+		if (fprintf(metalogfp, " link=%s", escaped_link) < 0)
 			goto err;
 	}
 
