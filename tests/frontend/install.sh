@@ -64,6 +64,14 @@ metalog_body()
 	atf_check mkdir ${TMPDIR}/testdir2
 	atf_check chmod 750 ${TMPDIR}/testdir2
 	echo "@dir(daemon) testdir2" >> test.plist
+	atf_check mkdir -p "${TMPDIR}/testdir3/foo/bar/baz"
+	echo "test123" > "${TMPDIR}/testdir3/foo/bar.sh"
+	echo "test123" > "${TMPDIR}/testdir3/foo/bar/baz.sh"
+	echo "test123" > "${TMPDIR}/testdir3/foo/bar/baz/qux.sh"
+	echo "@(root,wheel,0755,) testdir3/foo/bar.sh" >> test.plist
+	echo "@(root,wheel,0755,) testdir3/foo/bar/baz.sh" >> test.plist
+	echo "@(root,wheel,0755,) testdir3/foo/bar/baz/qux.sh" >> test.plist
+	echo "@dir testdir3" >> test.plist
 	atf_check mkdir "${TMPDIR}/tmp"
 	echo "@dir(root,wheel,1777,) tmp" >> test.plist
 
@@ -92,6 +100,13 @@ EOF
 		pkg -o REPOS_DIR="${TMPDIR}/reposconf" -o METALOG=${TMPDIR}/METALOG -r ${TMPDIR}/root install -y test
 
 	cat <<-EOF > expected_metalog
+	./testdir3/foo type=dir uname=root gname=wheel mode=0755
+	./testdir3 type=dir uname=root gname=wheel mode=0755
+	./testdir3/foo/bar.sh type=file uname=root gname=wheel mode=0755
+	./testdir3/foo/bar type=dir uname=root gname=wheel mode=0755
+	./testdir3/foo/bar/baz.sh type=file uname=root gname=wheel mode=0755
+	./testdir3/foo/bar/baz type=dir uname=root gname=wheel mode=0755
+	./testdir3/foo/bar/baz/qux.sh type=file uname=root gname=wheel mode=0755
 	./testfile1 type=file uname=root gname=wheel mode=0640
 	./testfile2 type=file uname=daemon gname=nobody mode=0644
 	./testhlink2 type=file uname=root gname=wheel mode=0644
@@ -102,6 +117,7 @@ EOF
 	./testdir1/foo/bar/baz type=dir uname=root gname=wheel mode=0755
 	./testdir1/foo/bar/baz2 type=dir uname=root gname=wheel mode=0755
 	./testdir2 type=dir uname=daemon gname=wheel mode=0750
+	./testdir3 type=dir uname=root gname=wheel mode=0755
 	./tmp type=dir uname=root gname=wheel mode=01777
 	EOF
 
