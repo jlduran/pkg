@@ -36,8 +36,8 @@ ATF_TC_BODY(basics, tc) {
 		"./dir type=dir uname=root gname=wheel mode=0644 flags=uchg\n"
 		"./link type=link uname=root gname=wheel mode=0644 link=bla\n";
 #else
-	const char *file = "./file type=file uname=root gname=wheel mode=0644 flags=\n"
-		"./dir type=dir uname=root gname=wheel mode=0644 flags=\n"
+	const char *file = "./file type=file uname=root gname=wheel mode=0644\n"
+		"./dir type=dir uname=root gname=wheel mode=0644\n"
 		"./link type=link uname=root gname=wheel mode=0644 link=bla\n";
 #endif
 	ATF_REQUIRE_EQ(EPKG_FATAL, metalog_open("/dev/nope/nope"));
