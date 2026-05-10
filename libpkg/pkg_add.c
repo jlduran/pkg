@@ -2152,23 +2152,29 @@ open_tempdir(struct pkg_add_context *context, const char *path)
 			if (S_ISLNK(st.st_mode) &&
 			    localpkg != NULL &&
 			    pkghash_get(localpkg->filehash, walk) == NULL &&
-			    fstatat(rootfd, RELATIVE_PATH(walk), &st, 0) == -1)
-				continue;
-			if (S_ISDIR(st.st_mode) && cnt == 1)
+			    fstatat(rootfd, RELATIVE_PATH(walk), &st, 0) == -1) {
+				if (errno == ENOENT) {
+					if (log_count < MAX_TREE_DEPTH)
+						to_log[log_count++] = xstrdup(walk);
+					continue;
+				}
+			}
+			if (S_ISDIR(st.st_mode))
 				break;
-			if (!S_ISDIR(st.st_mode))
-				continue;
+			dir = NULL;
+			break;
 		}
 	}
 
 	while (log_count > 0) {
 		log_count--;
-		missing_metalog_dir(context, to_log[log_count]);
+		if (dir != NULL)
+			missing_metalog_dir(context, to_log[log_count]);
 		free((void *)to_log[log_count]);
 	}
 
 	if (dir != NULL) {
-		*dir = '/';
+		strlcpy(walk, path, sizeof(walk));
 		t = xcalloc(1, sizeof(*t));
 		hidden_tempfile(t->temp, sizeof(t->temp), walk);
 		if (mkdirat(rootfd, RELATIVE_PATH(t->temp), 0755) == -1) {
@@ -2179,6 +2185,8 @@ open_tempdir(struct pkg_add_context *context, const char *path)
 
 		strlcpy(t->name, walk, sizeof(t->name));
 		t->len = strlen(t->name);
+		if (path[t->len] == '/')
+			t->len++;
 		t->fd = openat(rootfd, RELATIVE_PATH(t->temp), O_DIRECTORY|O_CLOEXEC);
 		if (t->fd == -1) {
 			pkg_errno("Failed to open directory %s", t->temp);
@@ -2186,6 +2194,9 @@ open_tempdir(struct pkg_add_context *context, const char *path)
 			return (NULL);
 		}
 		return (t);
+	} else {
+		while (log_count > 0)
+			free((void *)to_log[--log_count]);
 	}
 	errno = 0;
 
