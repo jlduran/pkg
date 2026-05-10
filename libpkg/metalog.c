@@ -89,12 +89,6 @@ metalog_add(int type, const char *path, const char *uname, const char *gname,
 	if (metalogfp == NULL)
 		goto out;
 
-#ifdef HAVE_FFLAGSTOSTR
-	if (fflags) {
-		fflags_buffer = fflagstostr(fflags);
-	}
-#endif
-
 	switch (type) {
 	case PKG_METALOG_DIR:
 		type_str = "dir";
@@ -125,9 +119,14 @@ metalog_add(int type, const char *path, const char *uname, const char *gname,
 			goto err;
 	}
 
-	if (fprintf(metalogfp, "%s%s\n",
-	    fflags ? " flags=" : "",
-	    fflags_buffer ? fflags_buffer : "") < 0)
+#ifdef HAVE_FFLAGSTOSTR
+	if (fflags && (fflags_buffer = fflagstostr(fflags)) != NULL) {
+		if (fprintf(metalogfp, " flags=%s", fflags_buffer) < 0)
+			goto err;
+	}
+#endif
+
+	if (fprintf(metalogfp, "\n") < 0)
 		goto err;
 
 	ret = EPKG_OK;
