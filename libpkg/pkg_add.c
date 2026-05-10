@@ -42,6 +42,8 @@
 #define NOCHANGESFLAGS	(UF_IMMUTABLE | UF_APPEND | SF_IMMUTABLE | SF_APPEND)
 #endif
 
+#define MAX_TREE_DEPTH	(MAXPATHLEN / 2)
+
 struct external_merge_tmp_file {
 	int fd;
 	const char *template;
@@ -498,18 +500,82 @@ do_extract_dir(struct pkg_add_context* context, struct archive *a __unused, stru
 	return (EPKG_OK);
 }
 
-
 static bool
-try_mkdir(int fd, const char *path)
+pkg_ensure_parents_recorded(struct pkg_add_context *context, const char *path)
 {
-	char *p = get_dirname(xstrdup(path));
+	struct stat st;
+	char *walk = xstrdup(path);
+	char *dir;
+	char *stack[MAX_TREE_DEPTH];
+	int i;
+	int stack_ptr = 0;
+	int rootfd = context->rootfd;
+	bool success = true;
 
-	if (!mkdirat_p(fd, RELATIVE_PATH(p))) {
-		free(p);
-		return (false);
+	dir = strrchr(walk, '/');
+	if (dir == NULL) {
+		free(walk);
+		return true;
 	}
-	free(p);
-	return (true);
+	*dir = '\0';
+
+	while ((dir = strrchr(walk, '/')) != NULL) {
+		*dir = '\0';
+
+		if (walk[0] == '\0') break;
+
+		if (fstatat(rootfd, RELATIVE_PATH(walk), &st, 0) == -1) {
+			if (stack_ptr < MAX_TREE_DEPTH) {
+				stack[stack_ptr++] = xstrdup(walk);
+			} else {
+				pkg_emit_error("Path too long: %s", path);
+				success = false;
+				goto cleanup;
+			}
+			continue;
+		}
+
+		if (!S_ISDIR(st.st_mode)) {
+			pkg_errno("%s exists and is not a directory", walk);
+			success = false;
+			goto cleanup;
+		}
+
+		break;
+	}
+
+	if (success && walk[0] != '\0') {
+		if (fstatat(rootfd, RELATIVE_PATH(walk), &st, 0) == -1) {
+			metalog_add(PKG_METALOG_DIR, walk,
+			    "root", "wheel", 0755, 0, NULL);
+			if (mkdirat(rootfd, RELATIVE_PATH(walk), 0755) == -1 &&
+			    errno != EEXIST) {
+				pkg_errno("Failed to create directory %s",
+				    walk);
+				success = false;
+			}
+		}
+	}
+
+	for (i = stack_ptr - 1; i >= 0; i--) {
+		if (success) {
+			if (strcmp(stack[i], walk) != 0) {
+				metalog_add(PKG_METALOG_DIR, stack[i],
+				    "root", "wheel", 0755, 0, NULL);
+				if (mkdirat(rootfd, RELATIVE_PATH(stack[i]),
+				    0755) == -1 && errno != EEXIST) {
+					pkg_errno("Failed to create directory %s",
+					    stack[i]);
+					success = false;
+				}
+			}
+		}
+		free(stack[i]);
+	}
+
+cleanup:
+	free(walk);
+	return success;
 }
 
 static int
@@ -541,7 +607,7 @@ create_symlinks(struct pkg_add_context *context, struct pkg_file *f, const char 
 retry:
 	if (symlinkat(target, fd, RELATIVE_PATH(path)) == -1) {
 		if (!tried_mkdir) {
-			if (!try_mkdir(fd, path)) {
+			if (!pkg_ensure_parents_recorded(context, path)) {
 				close_tempdir(tmpdir);
 				return (EPKG_FATAL);
 			}
@@ -671,7 +737,7 @@ retry:
 	if (linkat(fdh, RELATIVE_PATH(pathfrom),
 	    fd, RELATIVE_PATH(pathto), 0) == -1) {
 		if (!tried_mkdir) {
-			if (!try_mkdir(fd, pathto)) {
+			if (!pkg_ensure_parents_recorded(context, pathto)) {
 				close_tempdir(tmpdir);
 				close_tempdir(tmphdir);
 				return (EPKG_FATAL);
@@ -717,7 +783,7 @@ do_extract_hardlink(struct pkg_add_context *context, struct archive *a __unused,
 }
 
 static int
-open_tempfile(int rootfd, const char *path, int perm)
+open_tempfile(struct pkg_add_context *context, int rootfd, const char *path, int perm)
 {
 	int fd;
 	bool tried_mkdir = false;
@@ -725,9 +791,24 @@ open_tempfile(int rootfd, const char *path, int perm)
 retry:
 	fd = openat(rootfd, RELATIVE_PATH(path), O_CREAT|O_WRONLY|O_EXCL, perm);
 	if (fd == -1) {
-		if (!tried_mkdir) {
-			if (!try_mkdir(rootfd, path))
-				return (-2);
+		if (errno == ENOENT && !tried_mkdir) {
+			char *parent_path = xstrdup(path);
+			char *last_slash = strrchr(parent_path, '/');
+
+			if (last_slash != NULL) {
+				*last_slash = '\0';
+
+				struct stat st;
+				if (fstatat(context->rootfd,
+				    RELATIVE_PATH(parent_path), &st, 0) == -1) {
+					if (!pkg_ensure_parents_recorded(context,
+					    parent_path)) {
+						free(parent_path);
+						return (-2);
+					}
+				}
+			}
+			free(parent_path);
 			tried_mkdir = true;
 			goto retry;
 		}
@@ -754,9 +835,9 @@ create_regfile(struct pkg_add_context *context, struct pkg_file *f, struct archi
 	}
 
 	if (tmpdir != NULL) {
-		fd = open_tempfile(tmpdir->fd, f->path + tmpdir->len, f->perm);
+		fd = open_tempfile(context, tmpdir->fd, f->path + tmpdir->len, f->perm);
 	} else if (f->temppath != NULL) {
-		fd = open_tempfile(context->rootfd, f->temppath, f->perm);
+		fd = open_tempfile(context, context->rootfd, f->temppath, f->perm);
 	} else {
 		pkg_emit_error("Failed to create temporary file for %s", f->path);
 		return (EPKG_FATAL);
@@ -1004,9 +1085,15 @@ pkg_extract_finalize(struct pkg *pkg, tempdirs_t *tempdirs)
 		vec_foreach(*tempdirs, i) {
 			struct tempdir *t = tempdirs->d[i];
 			if (fstatat(pkg->rootfd, RELATIVE_PATH(t->name),
-			    &st, AT_SYMLINK_NOFOLLOW) == 0)
-				unlinkat(pkg->rootfd,
-				    RELATIVE_PATH(t->name), 0);
+			    &st, AT_SYMLINK_NOFOLLOW) == 0) {
+				if (S_ISDIR(st.st_mode))
+					unlinkat(pkg->rootfd,
+					    RELATIVE_PATH(t->name),
+					    AT_REMOVEDIR);
+				else
+					unlinkat(pkg->rootfd,
+					    RELATIVE_PATH(t->name), 0);
+			}
 			if (renameat(pkg->rootfd, RELATIVE_PATH(t->temp),
 			    pkg->rootfd, RELATIVE_PATH(t->name)) != 0) {
 				pkg_fatal_errno("Failed to rename %s -> %s",
@@ -2075,77 +2162,36 @@ cleanup:
 	return (retcode);
 }
 
-
 struct tempdir *
 open_tempdir(struct pkg_add_context *context, const char *path)
 {
-	struct stat st;
-	struct pkg *localpkg;
-	char walk[MAXPATHLEN];
-	char *dir;
-	size_t cnt = 0, len;
 	struct tempdir *t;
-	int rootfd;
+	char *walk = xstrdup(path);
+	char *dir;
 
-	rootfd = context->rootfd;
-	localpkg = context->localpkg;
+	pkg_ensure_parents_recorded(context, path);
 
-	strlcpy(walk, path, sizeof(walk));
-	while ((dir = strrchr(walk, '/')) != NULL) {
+	if ((dir = strrchr(walk, '/')) != NULL) {
 		*dir = '\0';
-		cnt++;
-		/* accept symlinks pointing to directories */
-		len = strlen(walk);
-		if (len == 0 && cnt == 1)
-			break;
-		if (len > 0) {
-			int flag;
-
-			flag = localpkg == NULL ? 0 : AT_SYMLINK_NOFOLLOW;
-			if (fstatat(rootfd, RELATIVE_PATH(walk), &st,
-			    flag) == -1) {
-				/*
-				 * A hack to ensure that intermediate
-				 * directories not registered with a package are
-				 * still logged in the metalog.  This is not
-				 * really the right place, but to implement this
-				 * properly we need to clean up uses of
-				 * try_mkdir().
-				 */
-				metalog_add(PKG_METALOG_DIR,
-				    RELATIVE_PATH(walk),
-				    "root", "wheel", 0755, 0, NULL);
-				continue;
-			}
-			if (S_ISLNK(st.st_mode) &&
-			    localpkg != NULL &&
-			    pkghash_get(localpkg->filehash, walk) == NULL &&
-			    fstatat(rootfd, RELATIVE_PATH(walk), &st, 0) == -1)
-				continue;
-			if (S_ISDIR(st.st_mode) && cnt == 1)
-				break;
-			if (!S_ISDIR(st.st_mode))
-				continue;
-		}
-		*dir = '/';
-		t = xcalloc(1, sizeof(*t));
-		hidden_tempfile(t->temp, sizeof(t->temp), walk);
-		if (mkdirat(rootfd, RELATIVE_PATH(t->temp), 0755) == -1) {
-			pkg_errno("Failed to create temporary directory: %s", t->temp);
-			free(t);
-			return (NULL);
-		}
-
-		strlcpy(t->name, walk, sizeof(t->name));
-		t->len = strlen(t->name);
-		t->fd = openat(rootfd, RELATIVE_PATH(t->temp), O_DIRECTORY|O_CLOEXEC);
-		if (t->fd == -1) {
-			pkg_errno("Failed to open directory %s", t->temp);
-			free(t);
-			return (NULL);
-		}
-		return (t);
+	} else {
+		free(walk);
+		walk = xstrdup(".");
 	}
-	errno = 0;
-	return (NULL);
+
+	t = xcalloc(1, sizeof(*t));
+	hidden_tempfile(t->temp, sizeof(t->temp), walk);
+
+	if (mkdirat(context->rootfd, RELATIVE_PATH(t->temp), 0755) == -1) {
+		pkg_errno("Failed to create temporary directory: %s", t->temp);
+		free(t);
+		free(walk);
+		return (NULL);
+	}
+
+	strlcpy(t->name, walk, sizeof(t->name));
+	t->len = strlen(t->name);
+	t->fd = openat(context->rootfd, RELATIVE_PATH(t->temp), O_DIRECTORY | O_CLOEXEC);
+
+	free(walk);
+	return (t);
 }
