@@ -42,6 +42,7 @@
 #include <fcntl.h>
 #include <spawn.h>
 #include <stdbool.h>
+#include <string.h>
 #include <unistd.h>
 #include <xstring.h>
 
@@ -53,7 +54,12 @@
 #define DEFFILEMODE (S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH|S_IWOTH)
 #endif
 
+#ifdef __APPLE__
+#include <crt_externs.h>
+#define environ (*_NSGetEnviron())
+#else
 extern char **environ;
+#endif
 
 lua_CFunction
 stack_dump(lua_State *L)
@@ -133,58 +139,88 @@ luaL_checkarraystrings(lua_State *L, int arg) {
 int
 lua_exec(lua_State *L)
 {
-	int r, pstat;
-	posix_spawn_file_actions_t action;
+	int pstat;
 	int stdin_pipe[2] = {-1, -1};
 	pid_t pid;
 	const char **argv;
 	int n = lua_gettop(L);
+
 	luaL_argcheck(L, n == 1, n > 1 ? 2 : n,
 	    "pkg.exec takes exactly one argument");
 
-#ifdef HAVE_CAPSICUM
-	unsigned int capmode;
-	if (cap_getmode(&capmode) == 0 && capmode > 0) {
-		return (luaL_error(L, "pkg.exec not available in sandbox"));
-	}
-#endif
 	if (pipe(stdin_pipe) < 0)
-		return (EPKG_FATAL);
-
-	posix_spawn_file_actions_init(&action);
-	posix_spawn_file_actions_adddup2(&action, stdin_pipe[0], STDIN_FILENO);
-	posix_spawn_file_actions_addclose(&action, stdin_pipe[1]);
+		return (luaL_error(L, "pipe: %s", strerror(errno)));
 
 	argv = luaL_checkarraystrings(L, 1);
-	if (0 != (r = posix_spawnp(&pid, argv[0], &action, NULL,
-		(char*const*)argv, environ))) {
-		lua_pushnil(L);
-		lua_pushstring(L, strerror(r));
-		lua_pushinteger(L, r);
-		return 3;
-	}
-	while (waitpid(pid, &pstat, 0) == -1) {
-		if (errno != EINTR) {
+
+	lua_getglobal(L, "rootfd");
+	int rootfd = lua_tointeger(L, -1);
+
+	bool has_slash = (strchr(argv[0], '/') != NULL);
+	bool is_absolute = (argv[0][0] == '/');
+	int bin_fd = -1;
+
+	if (has_slash && !is_absolute) {
+		bin_fd = openat(rootfd, RELATIVE_PATH(argv[0]), O_RDONLY);
+		if (bin_fd == -1) {
+			int err = errno;
+			close(stdin_pipe[0]);
+			close(stdin_pipe[1]);
 			lua_pushnil(L);
-			lua_pushstring(L, strerror(r));
-			lua_pushinteger(L, r);
+			lua_pushstring(L, strerror(err));
+			lua_pushinteger(L, err);
 			return 3;
 		}
+	}
+
+	pid = fork();
+	if (pid < 0) {
+		if (bin_fd != -1)
+			close(bin_fd);
+		close(stdin_pipe[0]);
+		close(stdin_pipe[1]);
+		return (luaL_error(L, "fork: %s", strerror(errno)));
+	}
+
+	if (pid == 0) {
+		dup2(stdin_pipe[0], STDIN_FILENO);
+		close(stdin_pipe[1]);
+		close(stdin_pipe[0]);
+
+		if (!has_slash)
+			execvp(argv[0], (char *const *)argv);
+		else if (is_absolute)
+			execv(argv[0], (char *const *)argv);
+		else {
+#ifdef __APPLE__
+			char procpath[PATH_MAX];
+			snprintf(procpath, sizeof(procpath), "/dev/fd/%d", bin_fd);
+			execve(procpath, (char *const *)argv, environ);
+#else
+			fexecve(bin_fd, (char *const *)argv, environ);
+#endif
+		}
+
+		_exit(127);
+	}
+
+	if (bin_fd != -1)
+		close(bin_fd);
+	close(stdin_pipe[0]);
+	close(stdin_pipe[1]);
+
+	while (waitpid(pid, &pstat, 0) == -1) {
+		if (errno != EINTR)
+			break;
 	}
 
 	if (WEXITSTATUS(pstat) != 0) {
 		lua_pushnil(L);
 		lua_pushstring(L, "Abnormal termination");
-		lua_pushinteger(L, r);
+		lua_pushinteger(L, WEXITSTATUS(pstat));
 		return 3;
 	}
 
-	posix_spawn_file_actions_destroy(&action);
-
-	if (stdin_pipe[0] != -1)
-		close(stdin_pipe[0]);
-	if (stdin_pipe[1] != -1)
-		close(stdin_pipe[1]);
 	lua_pushinteger(L, pid);
 	return 1;
 }
