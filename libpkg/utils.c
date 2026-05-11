@@ -835,26 +835,35 @@ pkg_absolutepath(const char *src, char *dest, size_t dest_size, bool fromroot) {
 bool
 mkdirat_p(int fd, const char *path)
 {
-	const char *next;
-	char pathdone[MAXPATHLEN], walkbuf[MAXPATHLEN], *walk;
+	char walkbuf[MAXPATHLEN];
+	char pathdone[MAXPATHLEN] = "";
+	char *walk = walkbuf;
+	char *segment;
 
-	pathdone[0] = '\0';
 	strlcpy(walkbuf, path, sizeof(walkbuf));
-	walk = walkbuf;
-	while ((next = strsep(&walk, "/")) != NULL) {
-		if (*next == '\0')
-			continue;
-		strlcat(pathdone, next, sizeof(pathdone));
+
+	while ((segment = strsep(&walk, "/")) != NULL) {
+		if (*segment == '\0') continue;
+
+		if (pathdone[0] != '\0')
+			strlcat(pathdone, "/", sizeof(pathdone));
+		strlcat(pathdone, segment, sizeof(pathdone));
+
 		if (mkdirat(fd, pathdone, 0755) == -1) {
-			if (errno == EEXIST) {
-				strlcat(pathdone, "/", sizeof(pathdone));
-				continue;
+			if (errno != EEXIST) {
+				pkg_errno("Failed to create %s", pathdone);
+				return (false);
 			}
-			pkg_errno("Failed to create /%s", pathdone);
-			return (false);
+			struct stat st;
+			if (fstatat(fd, pathdone, &st, 0) == 0 &&
+			    !S_ISDIR(st.st_mode)) {
+				pkg_errno("%s exists but is not a directory",
+				    pathdone);
+				return (false);
+			}
 		}
-		strlcat(pathdone, "/", sizeof(pathdone));
 	}
+
 	return (true);
 }
 
