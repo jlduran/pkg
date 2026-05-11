@@ -2075,67 +2075,104 @@ cleanup:
 	return (retcode);
 }
 
-
 struct tempdir *
 open_tempdir(struct pkg_add_context *context, const char *path)
 {
 	struct stat st;
-	struct pkg *localpkg;
-	char walk[MAXPATHLEN];
-	char *dir;
-	size_t len;
+	char path_builder[MAXPATHLEN];
 	struct tempdir *t;
-	int rootfd;
-	int flag;
+	int rootfd = context->rootfd;
+	struct pkg *localpkg = context->localpkg;
 
-	rootfd = context->rootfd;
-	localpkg = context->localpkg;
+	char *components[MAXPATHLEN / 2];
+	size_t comp_cnt = 0;
+	char *missing_dirs[MAXPATHLEN / 2];
+	size_t missing_cnt = 0;
 
-	strlcpy(walk, path, sizeof(walk));
-	while ((dir = strrchr(walk, '/')) != NULL) {
-		*dir = '\0';
-		/* accept symlinks pointing to directories */
-		len = strlen(walk);
-		if (len == 0)
-			break;
-		flag = (localpkg == NULL) ? 0 : AT_SYMLINK_NOFOLLOW;
-		if (fstatat(rootfd, RELATIVE_PATH(walk), &st, flag) == -1) {
-			/*
-			 * A hack to ensure that intermediate
-			 * directories not registered with a package are
-			 * still logged in the metalog.  This is not
-			 * really the right place, but to implement this
-			 * properly we need to clean up uses of
-			 * try_mkdir().
-			 */
-			metalog_add(PKG_METALOG_DIR, RELATIVE_PATH(walk),
-			    "root", "wheel", 0755, 0, NULL);
-			continue;
+	char *string = xstrdup(path);
+	char *tofree = string;
+	char *token;
+	while ((token = strsep(&string, "/")) != NULL) {
+		if (*token != '\0') components[comp_cnt++] = xstrdup(token);
+	}
+	free(tofree);
+
+	if (comp_cnt == 0) return (NULL);
+
+	path_builder[0] = '\0';
+	for (size_t i = 0; i < comp_cnt; i++) {
+		if (i > 0) strlcat(path_builder, "/", sizeof(path_builder));
+		strlcat(path_builder, components[i], sizeof(path_builder));
+	}
+
+	char anchor_path[MAXPATHLEN];
+	bool target_is_dir = false;
+
+	if (fstatat(rootfd, RELATIVE_PATH(path_builder), &st, 0) == 0 && S_ISDIR(st.st_mode)) {
+		target_is_dir = true;
+	}
+
+	if (target_is_dir) {
+		strlcpy(anchor_path, path_builder, sizeof(anchor_path));
+	} else {
+		int anchor_idx = -1;
+		ssize_t start_idx = (ssize_t)comp_cnt - 2;
+
+		for (ssize_t i = start_idx; i >= 0; i--) {
+			path_builder[0] = '\0';
+			for (size_t j = 0; j <= (size_t)i; j++) {
+				if (j > 0) strlcat(path_builder, "/", sizeof(path_builder));
+				strlcat(path_builder, components[j], sizeof(path_builder));
+			}
+
+			if (fstatat(rootfd, RELATIVE_PATH(path_builder), &st, (localpkg ? AT_SYMLINK_NOFOLLOW : 0)) == 0) {
+				if (S_ISDIR(st.st_mode)) {
+					anchor_idx = (int)i;
+					break;
+				}
+			}
+			missing_dirs[missing_cnt++] = xstrdup(path_builder);
 		}
-		if (S_ISLNK(st.st_mode) && localpkg != NULL &&
-		    pkghash_get(localpkg->filehash, walk) == NULL &&
-		    fstatat(rootfd, RELATIVE_PATH(walk), &st, 0) == -1)
-			continue;
-		if (S_ISDIR(st.st_mode)) {
-			t = xcalloc(1, sizeof(*t));
-			hidden_tempfile(t->temp, sizeof(t->temp), walk);
-			if (mkdirat(rootfd, RELATIVE_PATH(t->temp), 0755) == -1) {
-				pkg_errno("Failed to create temporary directory: %s", t->temp);
-				free(t);
-				return (NULL);
-			}
 
-			strlcpy(t->name, walk, sizeof(t->name));
-			t->len = strlen(t->name);
-			t->fd = openat(rootfd, RELATIVE_PATH(t->temp), O_DIRECTORY|O_CLOEXEC);
-			if (t->fd == -1) {
-				pkg_errno("Failed to open directory %s", t->temp);
-				free(t);
-				return (NULL);
+		if (anchor_idx == -1) {
+			strlcpy(anchor_path, ".", sizeof(anchor_path));
+		} else {
+			anchor_path[0] = '\0';
+			for (size_t j = 0; j <= (size_t)anchor_idx; j++) {
+				if (j > 0) strlcat(anchor_path, "/", sizeof(anchor_path));
+				strlcat(anchor_path, components[j], sizeof(anchor_path));
 			}
-			return (t);
 		}
 	}
-	errno = 0;
+
+	for (ssize_t i = (ssize_t)missing_cnt - 1; i >= 0; i--) {
+		metalog_add(PKG_METALOG_DIR, RELATIVE_PATH(missing_dirs[i]),
+		    "root", "wheel", 0755, 0, NULL);
+	}
+
+	t = xcalloc(1, sizeof(*t));
+	hidden_tempfile(t->temp, sizeof(t->temp), anchor_path);
+
+	if (mkdirat(rootfd, RELATIVE_PATH(t->temp), 0755) == -1) {
+		goto cleanup;
+	}
+
+	strlcpy(t->name, anchor_path, sizeof(t->name));
+	t->len = strlen(t->name);
+	t->fd = openat(rootfd, RELATIVE_PATH(t->temp), O_DIRECTORY | O_CLOEXEC);
+
+	if (t->fd == -1) {
+		unlinkat(rootfd, RELATIVE_PATH(t->temp), AT_REMOVEDIR);
+		goto cleanup;
+	}
+
+	for (size_t i = 0; i < comp_cnt; i++) free(components[i]);
+	for (size_t i = 0; i < missing_cnt; i++) free(missing_dirs[i]);
+	return (t);
+
+cleanup:
+	for (size_t i = 0; i < comp_cnt; i++) free(components[i]);
+	for (size_t i = 0; i < missing_cnt; i++) free(missing_dirs[i]);
+	free(t);
 	return (NULL);
 }
