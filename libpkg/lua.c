@@ -302,9 +302,7 @@ lua_pkg_copy(lua_State *L)
 	int fd1, fd2;
 	struct timespec ts[2];
 
-#ifdef HAVE_CHFLAGSAT
-        bool install_as_user = (getenv("INSTALL_AS_USER") != NULL);
-#endif
+	bool install_as_user = (getenv("INSTALL_AS_USER") != NULL);
 
 	lua_getglobal(L, "rootfd");
 	int rootfd = lua_tointeger(L, -1);
@@ -329,9 +327,11 @@ lua_pkg_copy(lua_State *L)
 		lua_pushinteger(L, 2);
 		return (1);
 	}
-	if (fchown(fd2, s1.st_uid, s1.st_gid) == -1) {
-		lua_pushinteger(L, 2);
-		return (1);
+	if (!install_as_user) {
+		if (fchown(fd2, s1.st_uid, s1.st_gid) == -1) {
+			lua_pushinteger(L, 2);
+			return (1);
+		}
 	}
 
 	fsync(fd2);
