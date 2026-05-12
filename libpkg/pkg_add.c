@@ -388,6 +388,33 @@ get_tempdir(struct pkg_add_context *context, const char *path, tempdirs_t *tempd
 	return (tmpdir);
 }
 
+static bool
+metalog_mkdirat_p(int fd, const char *path) {
+	const char *next;
+	char pathdone[MAXPATHLEN], walkbuf[MAXPATHLEN], *walk;
+
+	pathdone[0] = '\0';
+	strlcpy(walkbuf, path, sizeof(walkbuf));
+	walk = walkbuf;
+	while ((next = strsep(&walk, "/")) != NULL) {
+		if (*next == '\0')
+			continue;
+		strlcat(pathdone, next, sizeof(pathdone));
+		if (mkdirat(fd, pathdone, 0755) == -1) {
+			if (errno == EEXIST) {
+				strlcat(pathdone, "/", sizeof(pathdone));
+				continue;
+			}
+			pkg_errno("Failed to create /%s", pathdone);
+			return (false);
+		}
+		metalog_add(PKG_METALOG_DIR, pathdone,
+		    "root", "wheel", 0755, 0, NULL);
+		strlcat(pathdone, "/", sizeof(pathdone));
+	}
+	return (true);
+}
+
 static void
 close_tempdir(struct tempdir *t)
 {
@@ -504,7 +531,7 @@ try_mkdir(int fd, const char *path)
 {
 	char *p = get_dirname(xstrdup(path));
 
-	if (!mkdirat_p(fd, RELATIVE_PATH(p))) {
+	if (!metalog_mkdirat_p(fd, RELATIVE_PATH(p))) {
 		free(p);
 		return (false);
 	}
@@ -2103,20 +2130,8 @@ open_tempdir(struct pkg_add_context *context, const char *path)
 
 			flag = localpkg == NULL ? 0 : AT_SYMLINK_NOFOLLOW;
 			if (fstatat(rootfd, RELATIVE_PATH(walk), &st,
-			    flag) == -1) {
-				/*
-				 * A hack to ensure that intermediate
-				 * directories not registered with a package are
-				 * still logged in the metalog.  This is not
-				 * really the right place, but to implement this
-				 * properly we need to clean up uses of
-				 * try_mkdir().
-				 */
-				metalog_add(PKG_METALOG_DIR,
-				    RELATIVE_PATH(walk),
-				    "root", "wheel", 0755, 0, NULL);
+			    flag) == -1)
 				continue;
-			}
 			if (S_ISLNK(st.st_mode) &&
 			    localpkg != NULL &&
 			    pkghash_get(localpkg->filehash, walk) == NULL &&
