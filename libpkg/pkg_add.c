@@ -547,8 +547,14 @@ do_extract_dir(struct pkg_add_context* context, struct archive *a __unused, stru
 	}
 	aest = archive_entry_stat(ae);
 	d->perm = aest->st_mode;
-	d->uid = get_uid_from_uname(archive_entry_uname(ae));
-	d->gid = get_gid_from_gname(archive_entry_gname(ae));
+
+	if (getenv("INSTALL_AS_USER") != NULL) {
+		d->uid = getuid();
+		d->gid = getgid();
+	} else {
+		d->uid = get_uid_from_uname(archive_entry_uname(ae));
+		d->gid = get_gid_from_gname(archive_entry_gname(ae));
+	}
 	free(d->uname);
 	d->uname = xstrdup(archive_entry_uname(ae));
 	free(d->gname);
