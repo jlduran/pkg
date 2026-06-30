@@ -133,6 +133,19 @@ pkg_script_run(struct pkg * const pkg, pkg_script type, bool upgrade, bool noexe
 				xstring_printf(script_cmd, " %s", map[i].arg);
 			}
 
+			if (getenv("INSTALL_AS_USER") != NULL) {
+				xstring_printf(script_cmd, "\n"
+				    "# Overrides for INSTALL_AS_USER mode\n"
+				    "chown() { \n"
+				    "  # Ignore group/user arguments and only chown to current active user runtime\n"
+				    "  echo \"[INSTALL_AS_USER Wrapper] Masking chown invocation for safely dropping permissions\"\n"
+				    "  /usr/sbin/chown -R %d:%d \"$@\" 2>/dev/null || true\n"
+				    "}\n"
+				    "chgrp() { \n"
+				    "  /usr/sbin/chgrp -R %d \"$@\" 2>/dev/null || true\n"
+				    "}\n", (int)getuid(), (int)getgid(), (int)getgid());
+			}
+
 			xstring_printf(script_cmd, "\n%s", pkg->scripts[j]->buf);
 
 			/* Determine the maximum argument length for the given
