@@ -119,6 +119,8 @@ pkg_script_run(struct pkg * const pkg, pkg_script type, bool upgrade, bool noexe
 			if (ctx.pkg_rootdir == NULL)
 				ctx.pkg_rootdir = "/";
 			setenv("PKG_ROOTDIR", ctx.pkg_rootdir, 1);
+			if (strcmp(ctx.pkg_rootdir, "/") != 0)
+				setenv("LDCONFIG", "/usr/bin/true", 1);
 			if (ctx.metalog != NULL)
 				setenv("PKG_METALOG", ctx.metalog, 1);
 			if (ctx.ischrooted)
