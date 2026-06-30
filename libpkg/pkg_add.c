@@ -315,6 +315,9 @@ set_attrsat(int fd, const char *path, mode_t perm, uid_t uid, gid_t gid,
 		target_gid = getgid();
 	}
 
+	fprintf(stderr, "[DBG-ATTR-AT] Path: %s | Orig: %d:%d -> Target: %d:%d (INSTALL_AS_USER=%s)\n",
+	    path, (int)uid, (int)gid, (int)target_uid, (int)target_gid, getenv("INSTALL_AS_USER") ? "YES" : "NO");
+
 	if (fchownat(fd, RELATIVE_PATH(path), target_uid, target_gid,
 	    AT_SYMLINK_NOFOLLOW) == -1) {
 		if (errno == ENOTSUP) {
@@ -382,6 +385,9 @@ set_attr_tofd(int fd, const char *path, mode_t perm, uid_t uid, gid_t gid,
 		target_uid = getuid();
 		target_gid = getgid();
 	}
+
+	fprintf(stderr, "[DBG-ATTR-FD] Path: %s | Orig: %d:%d -> Target: %d:%d (INSTALL_AS_USER=%s)\n",
+	    path, (int)uid, (int)gid, (int)target_uid, (int)target_gid, getenv("INSTALL_AS_USER") ? "YES" : "NO");
 
 	if (fchown(fd, target_uid, target_gid) == -1) {
 		if (errno != EPERM && errno != EACCES) {
@@ -561,6 +567,8 @@ do_extract_dir(struct pkg_add_context* context, struct archive *a __unused, stru
 	d->gname = xstrdup(archive_entry_gname(ae));
 	fill_timespec_buf(aest, d->time);
 	archive_entry_fflags(ae, &d->fflags, &clear);
+
+	fprintf(stderr, "[DBG-EXTRACT-DIR] Path: %s -> Enforced UID: %d, GID: %d\n", path, (int)d->uid, (int)d->gid);
 
 	if (create_dir(context, d, tempdirs) == EPKG_FATAL) {
 		return (EPKG_FATAL);
@@ -1983,6 +1991,7 @@ pkg_add_fromdir(struct pkg *pkg, const char *src, struct pkgdb *db __unused)
 		}
 		if (d->perm == 0)
 			d->perm = st.st_mode & ~S_IFMT;
+		fprintf(stderr, "[DBG-DIR] Processing: %s (Manifest owner: %s:%s, Src stat: %d:%d)\n", d->path, d->uname ? d->uname : "NULL", d->gname ? d->gname : "NULL", (int)st.st_uid, (int)st.st_gid);
 		if (d->uname != NULL && !install_as_user) {
 			bufsize = 1024;
 			for (;;) {
@@ -2027,6 +2036,7 @@ pkg_add_fromdir(struct pkg *pkg, const char *src, struct pkgdb *db __unused)
 		} else {
 			d->gid = install_as_user ? getgid() : 0;
 		}
+		fprintf(stderr, "[DBG-DIR] Assigned Target IDs -> UID: %d, GID: %d, Perm: %o\n", (int)d->uid, (int)d->gid, (int)d->perm);
 #ifdef HAVE_STRUCT_STAT_ST_MTIM
 		d->time[0] = st.st_atim;
 		d->time[1] = st.st_mtim;
@@ -2059,6 +2069,7 @@ pkg_add_fromdir(struct pkg *pkg, const char *src, struct pkgdb *db __unused)
 			close(fromfd);
 			pkg_fatal_errno("%s%s", src, f->path);
 		}
+		fprintf(stderr, "[DBG-FILE] Processing: %s (Manifest owner: %s:%s, Src stat: %d:%d)\n", f->path, f->uname ? f->uname : "NULL", f->gname ? f->gname : "NULL", (int)st.st_uid, (int)st.st_gid);
 		if (f->uname != NULL && !install_as_user) {
 			bufsize = 1024;
 			for (;;) {
@@ -2105,6 +2116,7 @@ pkg_add_fromdir(struct pkg *pkg, const char *src, struct pkgdb *db __unused)
 			f->gid = install_as_user ? getgid() : 0;
 		}
 
+		fprintf(stderr, "[DBG-FILE] Assigned Target IDs -> UID: %d, GID: %d, Perm: %o\n", (int)f->uid, (int)f->gid, (int)f->perm);
 		if (f->perm == 0)
 			f->perm = st.st_mode & ~S_IFMT;
 		if (f->uid == 0 && install_as_user)
@@ -2135,6 +2147,7 @@ pkg_add_fromdir(struct pkg *pkg, const char *src, struct pkgdb *db __unused)
 			}
 			target[link_len] = '\0';
 			if (create_symlinks(&context, f, target, &tempdirs) == EPKG_FATAL) {
+				fprintf(stderr, "[DBG-ERROR] create_symlinks failed for %s\n", f->path);
 				retcode = EPKG_FATAL;
 				goto cleanup;
 			}
@@ -2157,12 +2170,14 @@ pkg_add_fromdir(struct pkg *pkg, const char *src, struct pkgdb *db __unused)
 			}
 			if (path != NULL) {
 				if (create_hardlink(&context, f, path, &tempdirs) == EPKG_FATAL) {
+					fprintf(stderr, "[DBG-ERROR] create_hardlink failed for %s\n", f->path);
 					close(fd);
 					retcode = EPKG_FATAL;
 					goto cleanup;
 				}
 			} else {
 				if (create_regfile(&context, f, NULL, NULL, fd, NULL, &tempdirs) == EPKG_FATAL) {
+					fprintf(stderr, "[DBG-ERROR] create_regfile failed for %s\n", f->path);
 					close(fd);
 					retcode = EPKG_FATAL;
 					goto cleanup;
