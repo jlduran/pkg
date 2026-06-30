@@ -389,7 +389,8 @@ get_tempdir(struct pkg_add_context *context, const char *path, tempdirs_t *tempd
 }
 
 static bool
-metalog_mkdirat_p(int fd, const char *path) {
+metalog_mkdirat_p(int fd, const char *path)
+{
 	const char *next;
 	char pathdone[MAXPATHLEN], walkbuf[MAXPATHLEN], *walk;
 
@@ -413,6 +414,18 @@ metalog_mkdirat_p(int fd, const char *path) {
 		strlcat(pathdone, "/", sizeof(pathdone));
 	}
 	return (true);
+}
+
+static int
+metalog_mkdirat(int fd, const chat *path, mode_t mode)
+{
+	int ret;
+
+	ret = mkdirat(fd, path, mode);
+	if (ret == 0)
+		metalog_add(PKG_METALOG_DIR, path, "root", "wheel", mode, 0, NULL);
+
+	return (ret);
 }
 
 static void
