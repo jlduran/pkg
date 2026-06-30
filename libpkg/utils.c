@@ -1170,8 +1170,32 @@ get_uid_from_uname(const char *uname)
 		pkg_emit_error("getpwnam_r(%s): %s", testuname, strerror(err));
 		return (0);
 	}
-	if (result == NULL)
-		return (0);
+	if (result != NULL)
+		goto out;
+
+	if (ctx.pkg_rootdir != NULL && strcmp(ctx.pkg_rootdir, "/") != 0) {
+		char pw_path[PATH_MAX];
+		snprintf(pw_path, sizeof(pw_path), "%s/etc/passwd", ctx.pkg_rootdir);
+		FILE *f = fopen(pw_path, "r");
+		if (f != NULL) {
+			char line[1024];
+			while (fgets(line, sizeof(line), f)) {
+				char name[128], pass[128];
+				int uid_val;
+				if (sscanf(line, "%127[^:]:%127[^:]:%d", name, pass, &uid_val) == 3) {
+					if (strcmp(name, testuname) == 0) {
+						fclose(f);
+						pwent.pw_uid = (uid_t)uid_val;
+						pwent.pw_name = xstrdup(testuname);
+						return (pwent.pw_uid);
+					}
+				}
+			}
+			fclose(f);
+		}
+	}
+	return (0);
+
 out:
 	return (pwent.pw_uid);
 }
@@ -1205,8 +1229,32 @@ get_gid_from_gname(const char *gname)
 		pkg_emit_error("getgrnam_r(%s): %s", testgname, strerror(err));
 		return (0);
 	}
-	if (result == NULL)
-		return (0);
+	if (result != NULL)
+		goto out;
+
+	if (ctx.pkg_rootdir != NULL && strcmp(ctx.pkg_rootdir, "/") != 0) {
+		char gr_path[PATH_MAX];
+		snprintf(gr_path, sizeof(gr_path), "%s/etc/group", ctx.pkg_rootdir);
+		FILE *f = fopen(gr_path, "r");
+		if (f != NULL) {
+			char line[1024];
+			while (fgets(line, sizeof(line), f)) {
+				char name[128], pass[128];
+				int gid_val;
+				if (sscanf(line, "%127[^:]:%127[^:]:%d", name, pass, &gid_val) == 3) {
+					if (strcmp(name, testgname) == 0) {
+						fclose(f);
+						grent.gr_gid = (gid_t)gid_val;
+						grent.gr_name = xstrdup(testgname);
+						return (grent.gr_gid);
+					}
+				}
+			}
+			fclose(f);
+		}
+	}
+	return (0);
+
 out:
 	return (grent.gr_gid);
 }
