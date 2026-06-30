@@ -300,6 +300,8 @@ set_attrsat(int fd, const char *path, mode_t perm, uid_t uid, gid_t gid,
 {
 	struct stat st;
 	struct timespec times[2];
+	uid_t target_uid = uid;
+	gid_t target_gid = gid;
 
 	times[0] = *ats;
 	times[1] = *mts;
@@ -308,17 +310,20 @@ set_attrsat(int fd, const char *path, mode_t perm, uid_t uid, gid_t gid,
 		pkg_fatal_errno("Failed to set time on %s", path);
 	}
 
-	if (getenv("INSTALL_AS_USER") == NULL) {
-		if (fchownat(fd, RELATIVE_PATH(path), uid, gid,
-				AT_SYMLINK_NOFOLLOW) == -1) {
-			if (errno == ENOTSUP) {
-				if (fchownat(fd, RELATIVE_PATH(path), uid, gid, 0) == -1) {
-					pkg_fatal_errno("Failed to chown(fallback) %s", path);
-				}
+	if (getenv("INSTALL_AS_USER") != NULL) {
+		target_uid = getuid();
+		target_gid = getgid();
+	}
+
+	if (fchownat(fd, RELATIVE_PATH(path), target_uid, target_gid,
+	    AT_SYMLINK_NOFOLLOW) == -1) {
+		if (errno == ENOTSUP) {
+			if (fchownat(fd, RELATIVE_PATH(path), target_uid, target_gid, 0) == -1) {
+				pkg_fatal_errno("Failed to chown(fallback) %s", path);
 			}
-			else {
-				pkg_fatal_errno("Failed to chown %s", path);
-			}
+		}
+		else {
+			pkg_fatal_errno("Failed to chown %s", path);
 		}
 	}
 
@@ -345,7 +350,7 @@ set_attrsat(int fd, const char *path, mode_t perm, uid_t uid, gid_t gid,
 				}
 			}
 		}
-		else {
+		else if (errno != EPERM && errno != EACCES) {
 			pkg_fatal_errno("Failed to chmod %s", path);
 		}
 	}
@@ -364,6 +369,8 @@ set_attr_tofd(int fd, const char *path, mode_t perm, uid_t uid, gid_t gid,
     const struct timespec *ats, const struct timespec *mts, u_long fflags)
 {
 	struct timespec times[2];
+	uid_t target_uid = uid;
+	gid_t target_gid = gid;
 
 	times[0] = *ats;
 	times[1] = *mts;
@@ -371,8 +378,13 @@ set_attr_tofd(int fd, const char *path, mode_t perm, uid_t uid, gid_t gid,
 		pkg_fatal_errno("Failed to set time on %s", path);
 	}
 
-	if (getenv("INSTALL_AS_USER") == NULL) {
-		if (fchown(fd, uid, gid) == -1) {
+	if (getenv("INSTALL_AS_USER") != NULL) {
+		target_uid = getuid();
+		target_gid = getgid();
+	}
+
+	if (fchown(fd, target_uid, target_gid) == -1) {
+		if (errno != EPERM && errno != EACCES) {
 			pkg_fatal_errno("Failed to chown %s", path);
 		}
 	}
