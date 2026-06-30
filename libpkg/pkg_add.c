@@ -1965,7 +1965,7 @@ pkg_add_fromdir(struct pkg *pkg, const char *src, struct pkgdb *db __unused)
 		}
 		if (d->perm == 0)
 			d->perm = st.st_mode & ~S_IFMT;
-		if (d->uname != NULL) {
+		if (d->uname != NULL && !install_as_user) {
 			bufsize = 1024;
 			for (;;) {
 				free(buffer);
@@ -1985,9 +1985,9 @@ pkg_add_fromdir(struct pkg *pkg, const char *src, struct pkgdb *db __unused)
 			}
 			d->uid = pwent.pw_uid;
 		} else {
-			d->uid = install_as_user ? st.st_uid : 0;
+			d->uid = install_as_user ? getuid() : 0;
 		}
-		if (d->gname != NULL) {
+		if (d->gname != NULL && !install_as_user) {
 			bufsize = 1024;
 			for (;;) {
 				free(buffer);
@@ -2007,7 +2007,7 @@ pkg_add_fromdir(struct pkg *pkg, const char *src, struct pkgdb *db __unused)
 			}
 			d->gid = grent.gr_gid;
 		} else {
-			d->gid = st.st_gid;
+			d->gid = install_as_user ? getgid() : 0;
 		}
 #ifdef HAVE_STRUCT_STAT_ST_MTIM
 		d->time[0] = st.st_atim;
@@ -2041,7 +2041,7 @@ pkg_add_fromdir(struct pkg *pkg, const char *src, struct pkgdb *db __unused)
 			close(fromfd);
 			pkg_fatal_errno("%s%s", src, f->path);
 		}
-		if (f->uname != NULL) {
+		if (f->uname != NULL && !install_as_user) {
 			bufsize = 1024;
 			for (;;) {
 				free(buffer);
@@ -2061,10 +2061,10 @@ pkg_add_fromdir(struct pkg *pkg, const char *src, struct pkgdb *db __unused)
 			}
 			f->uid = pwent.pw_uid;
 		} else {
-			f->uid = install_as_user ? st.st_uid : 0;
+			f->uid = install_as_user ? getuid() : 0;
 		}
 
-		if (f->gname != NULL) {
+		if (f->gname != NULL && !install_as_user) {
 			bufsize = 1024;
 			for (;;) {
 				free(buffer);
@@ -2084,7 +2084,7 @@ pkg_add_fromdir(struct pkg *pkg, const char *src, struct pkgdb *db __unused)
 			}
 			f->gid = grent.gr_gid;
 		} else {
-			f->gid = st.st_gid;
+			f->gid = install_as_user ? getgid() : 0;
 		}
 
 		if (f->perm == 0)
