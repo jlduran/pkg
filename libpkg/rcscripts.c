@@ -153,7 +153,12 @@ pkg_start_stop_rc_scripts(struct pkg *pkg, pkg_rc_attr attr)
 	int ret = 0;
 	bool handle_rc;
 
+	fprintf(stderr, "[DBG-RC] Entering pkg_start_stop_rc_scripts for pkg: %s\n", pkg ? pkg->name : "UNKNOWN");
+	fprintf(stderr, "[DBG-RC] Current ctx.pkg_rootdir state: %s\n", ctx.pkg_rootdir ? ctx.pkg_rootdir : "NULL (HOST ROOT)");
+	fprintf(stderr, "[DBG-RC] Current INSTALL_AS_USER env: %s\n", getenv("INSTALL_AS_USER") ? getenv("INSTALL_AS_USER") : "NOT SET");
+
 	handle_rc = pkg_object_bool(pkg_config_get("HANDLE_RC_SCRIPTS"));
+	fprintf(stderr, "[DBG-RC] Config HANDLE_RC_SCRIPTS value: %s\n", handle_rc ? "TRUE" : "FALSE");
 	if (!handle_rc)
 		return (ret);
 
@@ -170,6 +175,7 @@ pkg_start_stop_rc_scripts(struct pkg *pkg, pkg_rc_attr attr)
 			rcfile += len;
 			switch (attr) {
 			case PKG_RC_START:
+				fprintf(stderr, "[DBG-RC] Action: START service '%s'\n", rcfile);
 				ret += rc_start(rcfile);
 				break;
 			case PKG_RC_STOP:
